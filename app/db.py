@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
 # Lightweight migrations for DBs created by older versions
 _MIGRATIONS = [
     ("sync_tasks", "value_max_chars", "ALTER TABLE sync_tasks ADD COLUMN value_max_chars INTEGER NOT NULL DEFAULT 8000"),
+    ("sync_tasks", "strip_html", "ALTER TABLE sync_tasks ADD COLUMN strip_html INTEGER NOT NULL DEFAULT 0"),
 ]
 
 

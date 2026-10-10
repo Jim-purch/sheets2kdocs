@@ -108,6 +108,10 @@
   <label>单格最大字符数（超长内容自动截断，防止 Kdocs 拒收；0 = 不截断）</label>
   <input type="number" name="value_max_chars" min="0" max="100000"
          value="{{ task.value_max_chars if task else 8000 }}">
+  <div class="checkbox">
+    <input type="checkbox" name="strip_html" id="sh" {{ 'checked' if task and task.strip_html }}>
+    <label for="sh">HTML 清理（剥除 class 属性 / 注释 / 标签间空白，保留结构与文本——适合网页采集的长 HTML 列）</label>
+  </div>
   <div class="alert warn small">⚠ upsert 会删除目标表中键值不在源表的记录；replace 会清空目标表全部记录后重写。</div>
 </div>
 

@@ -68,6 +68,31 @@ def coerce(value: str, enabled: bool) -> Any:
     return value
 
 
+_HTML_MARK_RE = re.compile(r"<[a-zA-Z!/]")
+_CLASS_DQ_RE = re.compile(r'\s*class\s*=\s*"[^"]*"')
+_CLASS_SQ_RE = re.compile(r"\s*class\s*=\s*'[^']*'")
+_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.S)
+_TAG_WS_RE = re.compile(r">\s+<")
+
+
+def clean_html(value: str) -> str:
+    """Strip framework-generated redundancy from scraped HTML:
+    class attributes (tss-*/mui-* hashed names carry no content), comments,
+    and inter-tag whitespace. Tag structure and text stay intact."""
+    v = _CLASS_DQ_RE.sub("", value)
+    v = _CLASS_SQ_RE.sub("", v)
+    v = _HTML_COMMENT_RE.sub("", v)
+    v = _TAG_WS_RE.sub("><", v)
+    return v
+
+
+def maybe_clean_html(value: str) -> str:
+    """Apply clean_html only to values that look like HTML markup."""
+    if not value or len(value) < 64 or not _HTML_MARK_RE.search(value):
+        return value
+    return clean_html(value)
+
+
 def truncate_values(rows: list[dict], max_chars: int) -> tuple[list[dict], int]:
     """Clamp over-long cell values; Kdocs rejects cells past its char limit.
     Returns (rows, truncated_count)."""
@@ -195,6 +220,7 @@ def _run_task_impl(task) -> dict[str, Any]:
             raise SyncError("Google 表格没有读到任何数据（检查共享设置 / 工作表名 / 范围）")
         src_dicts = [dict(zip(headers, row)) for row in rows]
         log["rows_total"] = len(src_dicts)
+        n_html_cleaned = 0
 
         mapping: dict[str, str] = {}
         if task["field_mapping"]:
@@ -209,6 +235,18 @@ def _run_task_impl(task) -> dict[str, Any]:
                 r[f] = coerce(r[f], bool(task["coerce_numbers"]))
 
         max_chars = int(task["value_max_chars"] or 8000)
+        do_strip = bool(task["strip_html"])
+        if do_strip:
+            n_html_cleaned = 0
+            for r in mapped:
+                for f in list(r):
+                    if isinstance(r[f], str):
+                        cleaned = maybe_clean_html(r[f])
+                        if cleaned is not r[f]:
+                            n_html_cleaned += 1
+                            r[f] = cleaned
+            if n_html_cleaned:
+                logger.info("task %s: cleaned %d html values", task["id"], n_html_cleaned)
         mapped, n_trunc = truncate_values(mapped, max_chars)
         if n_trunc:
             logger.info("task %s: truncated %d over-long values to %d chars", task["id"], n_trunc, max_chars)
@@ -254,6 +292,7 @@ def _run_task_impl(task) -> dict[str, Any]:
             deleted=deleted,
             unchanged=plan.unchanged,
             detail=f"mode={task['mode']}, key={key_field or '-'}"
+                   + (f", html_cleaned={n_html_cleaned}" if do_strip and n_html_cleaned else "")
                    + (f", truncated={n_trunc}" if n_trunc else ""),
         )
     except (GoogleSourceError, KdocsError, SyncError) as e:

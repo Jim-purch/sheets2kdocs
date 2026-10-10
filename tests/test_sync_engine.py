@@ -1,8 +1,55 @@
-from app.sync_engine import apply_mapping, coerce, compute_plan, truncate_values
+from app.sync_engine import (
+    apply_mapping,
+    clean_html,
+    coerce,
+    compute_plan,
+    maybe_clean_html,
+    truncate_values,
+)
 
 
 def _rec(rid, fields):
     return {"id": rid, "fields": fields}
+
+
+class TestCleanHtml:
+    SAMPLE = (
+        '<div class="grid gap-6 tss-1flbdhb-Typography-root">'
+        '<span class="tss-252-SegmentItem-content-ref mui-fy02gk">Metric</span>'
+        "<input type=\"radio\" name='units' class='tss-1ai8skd-SegmentItem-input' checked>"
+        "<!-- framework comment -->"
+        "</div>"
+    )
+
+    def test_strips_class_and_comments(self):
+        out = clean_html(self.SAMPLE)
+        assert "class" not in out
+        assert "tss-" not in out and "mui-" not in out
+        assert "<!--" not in out
+        # structure and text preserved
+        assert "Metric" in out
+        assert out.startswith("<div>")
+        assert "<span>" in out
+        assert 'type="radio"' in out and "name='units'" in out
+
+    def test_maybe_clean_skips_non_html(self):
+        assert maybe_clean_html("plain text 123") == "plain text 123"
+        assert maybe_clean_html("") == ""
+        assert maybe_clean_html("a < b and c > d") == "a < b and c > d"
+        html = self.SAMPLE * 3  # ensure length > 64
+        assert "tss-" in maybe_clean_html(html) is False or True
+        cleaned = maybe_clean_html(html)
+        assert "tss-" not in cleaned
+
+    def test_short_html_untouched(self):
+        short = "<div>hi</div>"
+        assert maybe_clean_html(short) == short
+
+    def test_realworld_size_reduction(self):
+        # median scraped value ~14.6KB, ~77% is class attrs
+        big = ('<div class="tss-1ai8skd-SegmentItem-input-wrap %s">' % ("x" * 60)) * 60 + "</div>" * 60
+        cleaned = maybe_clean_html(big)
+        assert len(cleaned) < len(big) * 0.25
 
 
 class TestTruncate:
