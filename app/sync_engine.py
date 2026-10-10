@@ -14,6 +14,10 @@ from .config import settings
 from .google_source import GoogleSourceError, fetch_sheet_rows
 from .kdocs_client import get_backend, KdocsError
 
+# Empirically probed Kdocs dbsheet cell limit: 30000 chars OK, 30625 rejected.
+KDOCS_CELL_CHAR_LIMIT = 30000
+DEFAULT_VALUE_MAX_CHARS = 20000  # safe default below the hard limit
+
 logger = logging.getLogger("sheets2kdocs.sync")
 
 _task_locks: dict[int, threading.Lock] = {}
@@ -234,7 +238,7 @@ def _run_task_impl(task) -> dict[str, Any]:
             for f in r:
                 r[f] = coerce(r[f], bool(task["coerce_numbers"]))
 
-        max_chars = int(task["value_max_chars"] or 8000)
+        max_chars = min(int(task["value_max_chars"] or DEFAULT_VALUE_MAX_CHARS), KDOCS_CELL_CHAR_LIMIT)
         do_strip = bool(task["strip_html"])
         if do_strip:
             n_html_cleaned = 0

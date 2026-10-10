@@ -110,6 +110,10 @@ def _parse_int(val, default: int, lo: int = 0, hi: int = 10**9) -> int:
     return max(lo, min(hi, n))
 
 
+# Empirically probed Kdocs dbsheet cell limit: 30000 chars OK, 30625 rejected.
+KDOCS_CELL_CHAR_LIMIT = 30000
+
+
 def _parse_task_form(form) -> tuple[dict | None, str]:
     name = (form.get("name") or "").strip()
     source_url = (form.get("source_url") or "").strip()
@@ -179,7 +183,9 @@ def _parse_task_form(form) -> tuple[dict | None, str]:
         "field_mapping": mapping_raw,
         "auto_create_fields": 1 if form.get("auto_create_fields") else 0,
         "coerce_numbers": 1 if form.get("coerce_numbers") else 0,
-        "value_max_chars": _parse_int(form.get("value_max_chars"), 8000, lo=100, hi=100000),
+        "value_max_chars": _parse_int(
+            form.get("value_max_chars"), 20000, lo=100, hi=KDOCS_CELL_CHAR_LIMIT
+        ),
         "strip_html": 1 if form.get("strip_html") else 0,
         "schedule_type": stype,
         "schedule_value": svalue if stype != "manual" else "",
