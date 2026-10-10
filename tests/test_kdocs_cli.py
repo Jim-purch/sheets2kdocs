@@ -102,6 +102,8 @@ class TestRecords:
         payloads = []
 
         def fake_run(args, **kw):
+            if args[2] == "get-schema":
+                return cli_response({"code": 0, "data": {"data": {"sheets": []}}})
             payloads.append(json.loads(args[3]))
             return cli_response({"code": 0, "data": {"detail": {}}})
 
@@ -109,7 +111,8 @@ class TestRecords:
             count = c.create_records("FT", 3, [{"A": i} for i in range(450)])
         assert count == 450
         assert [len(p["records"]) for p in payloads] == [200, 200, 50]
-        assert payloads[0]["records"][0] == {"fields": {"A": 0}}
+        # no schema -> Text fields -> values stringified
+        assert payloads[0]["records"][0] == {"fields": {"A": "0"}}
 
     def test_delete_records_object_array(self):
         c = self._client()
@@ -129,12 +132,15 @@ class TestRecords:
         payloads = []
 
         def fake_run(args, **kw):
+            if args[2] == "get-schema":
+                return cli_response({"code": 0, "data": {"data": {"sheets": []}}})
             payloads.append(json.loads(args[3]))
             return cli_response({"code": 0, "data": {"detail": {}}})
 
         with patch("app.kdocs_cli.subprocess.run", side_effect=fake_run):
             c.update_records("FT", 3, [{"id": "r1", "fields": {"A": 1}}])
-        assert payloads[0]["records"] == [{"id": "r1", "fields": {"A": 1}}]
+        # no schema -> value stringified for Text fields
+        assert payloads[0]["records"] == [{"id": "r1", "fields": {"A": "1"}}]
 
 
 class TestSchema:
@@ -181,6 +187,40 @@ class TestSchema:
         assert missing == []
         assert "create-fields" in actions
         assert [f["name"] for f in state["fields"]] == ["A", "B"]
+
+
+class TestStringify:
+    def _client(self) -> KdocsCliClient:
+        return KdocsCliClient(token="tok", cli_path="/bin/kdocs-cli")
+
+    def test_numbers_stringified_on_text_fields(self):
+        c = self._client()
+        schema = {"sheets": [{"id": 3, "fields": [{"name": "价格", "type": "MultiLineText"}]}]}
+
+        def fake_run(args, **kw):
+            if args[2] == "get-schema":
+                return cli_response({"code": 0, "data": {"data": schema}})
+            return cli_response({"code": 0, "data": {"detail": {}}})
+
+        payloads = []
+
+        def capture_run(args, **kw):
+            if args[2] == "create-records":
+                payloads.append(json.loads(args[3]))
+            return fake_run(args, **kw)
+
+        with patch("app.kdocs_cli.subprocess.run", side_effect=capture_run):
+            c.create_records("FT", 3, [{"价格": 59.9, "编号": "007"}])
+        assert payloads[0]["records"][0]["fields"]["价格"] == "59.9"
+        assert payloads[0]["records"][0]["fields"]["编号"] == "007"
+
+    def test_numeric_fields_keep_numbers(self):
+        c = self._client()
+        schema = {"sheets": [{"id": 3, "fields": [{"name": "数量", "type": "Number"}]}]}
+        with patch("app.kdocs_cli.subprocess.run") as run:
+            run.return_value = cli_response({"code": 0, "data": {"data": schema}})
+            out = c._stringify_for_sheet("FT", 3, [{"数量": 5, "备注": 7}])
+        assert out == [{"数量": 5, "备注": "7"}]
 
 
 class TestTokenStore:
