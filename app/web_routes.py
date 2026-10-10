@@ -102,6 +102,14 @@ def dashboard(request: Request, msg: str = "", err: str = ""):
 
 
 # -------------------------------------------------------------- task CRUD
+def _parse_int(val, default: int, lo: int = 0, hi: int = 10**9) -> int:
+    try:
+        n = int(str(val).strip() or default)
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(hi, n))
+
+
 def _parse_task_form(form) -> tuple[dict | None, str]:
     name = (form.get("name") or "").strip()
     source_url = (form.get("source_url") or "").strip()
@@ -171,6 +179,7 @@ def _parse_task_form(form) -> tuple[dict | None, str]:
         "field_mapping": mapping_raw,
         "auto_create_fields": 1 if form.get("auto_create_fields") else 0,
         "coerce_numbers": 1 if form.get("coerce_numbers") else 0,
+        "value_max_chars": _parse_int(form.get("value_max_chars"), 8000, lo=100, hi=100000),
         "schedule_type": stype,
         "schedule_value": svalue if stype != "manual" else "",
         "enabled": 1 if form.get("enabled") else 0,
@@ -195,11 +204,11 @@ async def task_new(request: Request):
            (name, source_url, spreadsheet_id, gid, sheet_name, source_range, source_mode,
             target_file_token, target_file_name, target_sheet_id, target_sheet_name,
             mode, key_field, field_mapping, auto_create_fields, coerce_numbers,
-            schedule_type, schedule_value, enabled)
+            value_max_chars, schedule_type, schedule_value, enabled)
            VALUES (:name,:source_url,:spreadsheet_id,:gid,:sheet_name,:source_range,:source_mode,
                    :target_file_token,:target_file_name,:target_sheet_id,:target_sheet_name,
                    :mode,:key_field,:field_mapping,:auto_create_fields,:coerce_numbers,
-                   :schedule_type,:schedule_value,:enabled)""",
+                   :value_max_chars,:schedule_type,:schedule_value,:enabled)""",
         data,
     )
     task = dict(db.q_one("SELECT * FROM sync_tasks WHERE id = ?", (new_id,)))
@@ -238,6 +247,7 @@ async def task_edit(request: Request, task_id: int):
              target_sheet_id=:target_sheet_id, target_sheet_name=:target_sheet_name,
              mode=:mode, key_field=:key_field, field_mapping=:field_mapping,
              auto_create_fields=:auto_create_fields, coerce_numbers=:coerce_numbers,
+             value_max_chars=:value_max_chars,
              schedule_type=:schedule_type, schedule_value=:schedule_value, enabled=:enabled
            WHERE id=:id""",
         {**data, "id": task_id},

@@ -1,8 +1,29 @@
-from app.sync_engine import apply_mapping, coerce, compute_plan
+from app.sync_engine import apply_mapping, coerce, compute_plan, truncate_values
 
 
 def _rec(rid, fields):
     return {"id": rid, "fields": fields}
+
+
+class TestTruncate:
+    def test_truncates_long_values(self):
+        rows = [{"a": "x" * 9000}, {"a": "short"}]
+        out, n = truncate_values(rows, 8000)
+        assert len(out[0]["a"]) == 8000
+        assert out[1]["a"] == "short"
+        assert n == 1
+
+    def test_zero_disables(self):
+        rows = [{"a": "x" * 9000}]
+        out, n = truncate_values(rows, 0)
+        assert len(out[0]["a"]) == 9000
+        assert n == 0
+
+    def test_non_string_untouched(self):
+        rows = [{"a": 12345}]
+        out, n = truncate_values(rows, 3)
+        assert out[0]["a"] == 12345
+        assert n == 0
 
 
 class TestCoerce:

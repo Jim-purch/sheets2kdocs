@@ -74,6 +74,18 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 """
 
+# Lightweight migrations for DBs created by older versions
+_MIGRATIONS = [
+    ("sync_tasks", "value_max_chars", "ALTER TABLE sync_tasks ADD COLUMN value_max_chars INTEGER NOT NULL DEFAULT 8000"),
+]
+
+
+def _migrate(con: sqlite3.Connection) -> None:
+    for table, column, ddl in _MIGRATIONS:
+        cols = {row[1] for row in con.execute(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            con.execute(ddl)
+
 
 def init_db(db_path: str | Path) -> None:
     global _db_path
@@ -82,6 +94,7 @@ def init_db(db_path: str | Path) -> None:
     con = _new_conn()
     try:
         con.executescript(SCHEMA)
+        _migrate(con)
         con.commit()
     finally:
         con.close()

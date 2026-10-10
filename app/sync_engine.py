@@ -68,6 +68,25 @@ def coerce(value: str, enabled: bool) -> Any:
     return value
 
 
+def truncate_values(rows: list[dict], max_chars: int) -> tuple[list[dict], int]:
+    """Clamp over-long cell values; Kdocs rejects cells past its char limit.
+    Returns (rows, truncated_count)."""
+    if not max_chars or max_chars <= 0:
+        return rows, 0
+    truncated = 0
+    out = []
+    for row in rows:
+        new_row = {}
+        for k, v in row.items():
+            if isinstance(v, str) and len(v) > max_chars:
+                new_row[k] = v[:max_chars]
+                truncated += 1
+            else:
+                new_row[k] = v
+        out.append(new_row)
+    return out, truncated
+
+
 def apply_mapping(row: dict[str, str], mapping: dict[str, str]) -> dict[str, Any]:
     """Map {source_header: value} to {target_field: value} using field_mapping.
     Empty mapping -> identity (header names equal target field names)."""
@@ -189,6 +208,11 @@ def _run_task_impl(task) -> dict[str, Any]:
             for f in r:
                 r[f] = coerce(r[f], bool(task["coerce_numbers"]))
 
+        max_chars = int(task["value_max_chars"] or 8000)
+        mapped, n_trunc = truncate_values(mapped, max_chars)
+        if n_trunc:
+            logger.info("task %s: truncated %d over-long values to %d chars", task["id"], n_trunc, max_chars)
+
         client = get_backend()
 
         if task["auto_create_fields"]:
@@ -229,7 +253,8 @@ def _run_task_impl(task) -> dict[str, Any]:
             updated=updated,
             deleted=deleted,
             unchanged=plan.unchanged,
-            detail=f"mode={task['mode']}, key={key_field or '-'}",
+            detail=f"mode={task['mode']}, key={key_field or '-'}"
+                   + (f", truncated={n_trunc}" if n_trunc else ""),
         )
     except (GoogleSourceError, KdocsError, SyncError) as e:
         log["status"] = "error"

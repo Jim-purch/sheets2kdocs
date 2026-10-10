@@ -72,6 +72,30 @@ class TestRun:
         assert "--token" not in cmd
 
 
+    def test_large_payload_goes_via_stdin(self):
+        """Payloads over the argv size limit must be passed via stdin ('-')."""
+        c = self._client()
+        big_records = [{"fields": {"备注": "x" * 200}} for _ in range(300)]  # > 32KB
+        with patch("app.kdocs_cli.subprocess.run") as run:
+            run.return_value = cli_response({"code": 0, "data": {"detail": {}}})
+            c._dbsheet("create-records", {"file_id": "F", "sheet_id": 1, "records": big_records})
+        call = run.call_args
+        cmd = call.args[0]
+        assert "-" in cmd, "expected stdin marker in args"
+        assert all(len(a) <= c.STDIN_THRESHOLD for a in cmd), "no oversized argv entries"
+        assert call.kwargs.get("input", "").startswith("{"), "JSON should be piped via stdin"
+
+    def test_small_payload_stays_argv(self):
+        c = self._client()
+        with patch("app.kdocs_cli.subprocess.run") as run:
+            run.return_value = cli_response({"code": 0, "data": {"detail": {}}})
+            c._dbsheet("list-records", {"file_id": "F", "sheet_id": 1})
+        call = run.call_args
+        cmd = call.args[0]
+        assert any(a.startswith("{") for a in cmd)  # small JSON stays as argv
+        assert call.kwargs.get("input") is None
+
+
 class TestRecords:
     def _client(self) -> KdocsCliClient:
         return KdocsCliClient(token="tok", cli_path="/bin/kdocs-cli")
@@ -110,7 +134,8 @@ class TestRecords:
         with patch("app.kdocs_cli.subprocess.run", side_effect=fake_run):
             count = c.create_records("FT", 3, [{"A": i} for i in range(450)])
         assert count == 450
-        assert [len(p["records"]) for p in payloads] == [200, 200, 50]
+        # batch size 100 (gateway-friendly): 100+100+100+100+50
+        assert [len(p["records"]) for p in payloads] == [100, 100, 100, 100, 50]
         # no schema -> Text fields -> values stringified
         assert payloads[0]["records"][0] == {"fields": {"A": "0"}}
 

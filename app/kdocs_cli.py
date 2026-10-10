@@ -20,7 +20,12 @@ from typing import Any
 
 from . import db
 
-DEFAULT_TIMEOUT = 120  # seconds per CLI invocation
+# Batch sizes kept modest: the mcp-center gateway is slow on large payloads
+# and kdocs-cli's own HTTP timeout is not configurable.
+BATCH_SIZE = 100
+PAGE_SIZE = 100
+
+DEFAULT_TIMEOUT = int(os.environ.get("KDOCS_CLI_TIMEOUT", "180"))  # per invocation
 
 
 class KdocsCliError(RuntimeError):
@@ -89,14 +94,28 @@ class KdocsCliClient:
         self.timeout = timeout
 
     # ------------------------------------------------------------- plumbing
+    # Linux caps a single argv entry at 128KB (E2BIG). JSON payloads for
+    # record batches regularly exceed that, so large params go via stdin
+    # (kdocs-cli accepts "-" to read the JSON params from stdin).
+    STDIN_THRESHOLD = 32 * 1024
+
     def _run(self, args: list[str]) -> dict:
-        cmd = [self.cli_path, *args]
+        stdin_data = None
+        positional = args
+        if args and len(args[-1]) > self.STDIN_THRESHOLD and args[-1].startswith("{"):
+            stdin_data = args[-1]
+            positional = args[:-1] + ["-"]  # replace oversized argv with stdin marker
+        cmd = [self.cli_path, *positional]
         if self.token:
             cmd += ["--token", self.token]
         cmd += ["--output", "json"]
         try:
             proc = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=self.timeout
+                cmd,
+                input=stdin_data,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
             )
         except FileNotFoundError as e:
             raise KdocsCliError(
@@ -128,9 +147,7 @@ class KdocsCliClient:
         return data if isinstance(data, dict) else {}
 
     def _dbsheet(self, action: str, params: dict[str, Any]) -> dict:
-        return self._run(["dbsheet", action, json.dumps(params, ensure_ascii=False)])
-
-    # ------------------------------------------------------------ capability
+        return self._run(["dbsheet", action, json.dumps(params, ensure_ascii=False)])    # ------------------------------------------------------------ capability
     def test_connection(self) -> dict:
         """Lightweight connectivity/auth check via drive root listing."""
         data = self._run(["drive", "list-my-files", json.dumps({"page_size": 1})])
@@ -262,7 +279,7 @@ class KdocsCliClient:
             params: dict[str, Any] = {
                 "file_id": file_token,
                 "sheet_id": int(sheet_id),
-                "page_size": 100,
+                "page_size": PAGE_SIZE,
             }
             if offset:
                 params["offset"] = offset
@@ -277,8 +294,8 @@ class KdocsCliClient:
     def create_records(self, file_token: str, sheet_id: int, fields_list: list[dict]) -> int:
         fields_list = self._stringify_for_sheet(file_token, sheet_id, fields_list)
         count = 0
-        for i in range(0, len(fields_list), 200):
-            chunk = fields_list[i : i + 200]
+        for i in range(0, len(fields_list), BATCH_SIZE):
+            chunk = fields_list[i : i + BATCH_SIZE]
             self._dbsheet(
                 "create-records",
                 {
@@ -299,8 +316,8 @@ class KdocsCliClient:
             for it, conv in zip(items, converted)
         ]
         count = 0
-        for i in range(0, len(items), 200):
-            chunk = items[i : i + 200]
+        for i in range(0, len(items), BATCH_SIZE):
+            chunk = items[i : i + BATCH_SIZE]
             self._dbsheet(
                 "update-records",
                 {
@@ -314,8 +331,8 @@ class KdocsCliClient:
 
     def delete_records(self, file_token: str, sheet_id: int, record_ids: list[str]) -> int:
         count = 0
-        for i in range(0, len(record_ids), 200):
-            chunk = record_ids[i : i + 200]
+        for i in range(0, len(record_ids), BATCH_SIZE):
+            chunk = record_ids[i : i + BATCH_SIZE]
             self._dbsheet(
                 "delete-records",
                 {
