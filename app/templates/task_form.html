@@ -59,7 +59,7 @@
     </div>
     <div>
       <label>或手动填 file_token</label>
-      <input type="text" id="file_token" class="mono" placeholder="右键表格标签 → 文档信息 → 文件ID"
+      <input type="text" id="file_token" name="target_file_token" class="mono" placeholder="右键表格标签 → 文档信息 → 文件ID"
              value="{{ task.target_file_token if task else '' }}">
     </div>
   </div>
@@ -322,7 +322,11 @@ function esc(s) {
 /* ---------- wire up ---------- */
 $('btn-preview').addEventListener('click', previewSource);
 $('btn-create-table').addEventListener('click', createTable);
-$('file_select').addEventListener('change', () => { $('file_token').value = ''; loadSheets(); });
+$('file_select').addEventListener('change', () => {
+  /* copy dropdown choice into the (submitted) file_token input */
+  $('file_token').value = $('file_select').value;
+  loadSheets();
+});
 $('file_token').addEventListener('change', loadSheets);
 $('sheet_select').addEventListener('change', loadFields);
 $('source_mode').addEventListener('change', () => { $('preview-status').textContent = ''; });

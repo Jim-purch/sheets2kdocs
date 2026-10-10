@@ -179,8 +179,10 @@ def _parse_task_form(form) -> tuple[dict | None, str]:
 
 
 @router.get("/tasks/new")
-def task_new_page(request: Request):
-    return templates.TemplateResponse(request, "task_form.html", {"task": None, "mapping": {}})
+def task_new_page(request: Request, err: str = ""):
+    return templates.TemplateResponse(
+        request, "task_form.html", {"task": None, "mapping": {}, "err": err}
+    )
 
 
 @router.post("/tasks/new")
