@@ -51,6 +51,9 @@ class Settings:
         # Kdocs open platform credentials
         self.kdocs_app_id: str = _env("KDOCS_APP_ID")
         self.kdocs_app_key: str = _env("KDOCS_APP_KEY")
+        # backend: 'openapi' (enterprise OpenAPI app) | 'cli' (personal Skill token)
+        self.kdocs_backend: str = _env("KDOCS_BACKEND", "openapi")
+        self.kdocs_cli_token_hint: str = _env("KDOCS_CLI_TOKEN")  # bootstrap token (optional)
         custom_redirect = _env("KDOCS_REDIRECT_URI")
         self.kdocs_redirect_uri: str = custom_redirect or (
             f"{self.base_url}/auth/kdocs/callback" if self.base_url else ""

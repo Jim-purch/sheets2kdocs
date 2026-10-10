@@ -9,15 +9,17 @@ from fastapi import APIRouter, HTTPException, Request
 from . import db, sync_engine
 from .config import settings
 from .google_source import parse_sheet_url
-from .kdocs_client import KdocsClient, KdocsError
+from .kdocs_client import KdocsError, backend_name, get_backend
 
 router = APIRouter()
 
 
-def _client() -> KdocsClient:
-    if not settings.kdocs_app_id or not settings.kdocs_app_key:
+def _client():
+    """Active backend client (cli or openapi)."""
+    client = get_backend()
+    if backend_name() == "openapi" and not settings.kdocs_app_id:
         raise HTTPException(400, "尚未配置 KDOCS_APP_ID / KDOCS_APP_KEY（.env）")
-    return KdocsClient(settings.kdocs_app_id, settings.kdocs_app_key)
+    return client
 
 
 @router.get("/google/preview")
@@ -51,8 +53,12 @@ def google_preview(url: str, sheet_name: str = "", source_range: str = "", mode:
 
 @router.get("/kdocs/files")
 def kdocs_files():
+    client = _client()
     try:
-        files = _client().list_files_flat()
+        if hasattr(client, "list_files_flat"):
+            files = client.list_files_flat()
+        else:
+            files = client.list_files()
     except KdocsError as e:
         raise HTTPException(400, str(e))
     return {"files": files}
@@ -88,18 +94,65 @@ async def kdocs_create_table(request: Request):
         data = _client().create_data_table(file_token, name, fields)
     except KdocsError as e:
         raise HTTPException(400, str(e))
-    sheet = (data.get("detail") or {}).get("sheet") or {}
-    return {"sheet_id": sheet.get("id"), "name": sheet.get("name")}
+    # openapi: {detail:{sheet:{id,name}}}; cli: {sheet:{...}} or {id,name} directly
+    sheet = (data.get("detail") or {}).get("sheet") or data.get("sheet") or data
+    return {"sheet_id": sheet.get("id"), "name": sheet.get("name") or name}
+
+
+@router.get("/kdocs/connection-test")
+def kdocs_connection_test():
+    """Works for both backends; verifies token/credentials are alive."""
+    client = _client()
+    try:
+        if hasattr(client, "test_connection"):
+            result = client.test_connection()
+        else:
+            client.list_files_flat(max_pages=1)
+            result = {"ok": True}
+    except KdocsError as e:
+        raise HTTPException(400, str(e))
+    return result
+
+
+@router.post("/kdocs/cli-token")
+async def kdocs_cli_token(request: Request):
+    """Save/update the personal Skill token (cli backend). Hot-reload, no restart."""
+    body = await request.json()
+    token = (body.get("token") or "").strip()
+    if not token:
+        raise HTTPException(400, "token 不能为空")
+    from .kdocs_cli import invalidate_token_cache, set_setting
+
+    set_setting("cli_token", token)
+    invalidate_token_cache()
+    try:
+        from .kdocs_cli import KdocsCliClient
+
+        KdocsCliClient(token=token).test_connection()
+    except KdocsError as e:
+        raise HTTPException(400, f"token 已保存但连接测试失败: {e}")
+    return {"ok": True, "message": "token 已保存并验证通过"}
 
 
 @router.get("/kdocs/token-status")
 def kdocs_token_status():
+    if backend_name() == "cli":
+        from .kdocs_cli import get_setting
+
+        token = get_setting("cli_token")
+        masked = f"{token[:6]}…{token[-4:]}" if len(token) > 12 else ("已设置" if token else "")
+        return {
+            "backend": "cli",
+            "authorized": bool(token),
+            "token_masked": masked,
+        }
     row = db.q_one("SELECT * FROM kdocs_tokens WHERE id = 1")
     if not row or not row["refresh_token"]:
-        return {"authorized": False}
+        return {"backend": "openapi", "authorized": False}
     import time
 
     return {
+        "backend": "openapi",
         "authorized": True,
         "expires_at": row["expires_at"],
         "expired": int(row["expires_at"]) <= time.time(),

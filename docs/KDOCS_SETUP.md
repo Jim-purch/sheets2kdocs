@@ -1,6 +1,43 @@
 # Kdocs 开放平台接入指南
 
-sheets2kdocs 通过**金山文档开放平台**（官方 OpenAPI）写入智能表格，需要先创建一个应用并获得授权。
+sheets2kdocs 支持两种 Kdocs 接入方式。**大多数人应该用方式一（免企业认证）**。
+
+## 方式一：kdocs-cli 个人 Token（推荐，无需企业认证）
+
+使用官方「金山文档 Skill」CLI，以 WPS 个人账号身份读写多维表格/智能表格。
+
+### 1. 获取 Token（约 30 秒）
+
+1. 浏览器登录 **WPS 个人账号**（企业账号会 403，注意切换）
+2. 打开 <https://www.kdocs.cn/latest>
+3. 右上角头像旁主菜单 → **「金山文档Skill」** → 复制 Token
+
+Token 有效期约 1 年，到期后在管理页重新粘贴即可。
+
+### 2. 配置
+
+- `.env` 设置 `KDOCS_BACKEND=cli`（Docker 镜像已内置 CLI）
+- 启动后在管理页 **「Kdocs 连接」** 粘贴 Token → 保存并测试（热生效，无需重启）
+
+Token 优先级：管理页（存数据库）> `.env` `KDOCS_CLI_TOKEN` > 空（本地开发走钥匙串）。
+
+### 3. 目标表格要求
+
+- 目标文件在授权账号「我的文档」下（或共享给该账号，用 file_id 直接填）
+- 文件类型：多维表格（.dbt）或智能表格（.ksheet），内含至少一个**数据表** sheet
+- 注意：通过本连接器新建的数据表字段为文本类型；数字以字符串写入（避免前导零丢失）。
+  如需数字类型字段，在 Kdocs 里手动改字段类型后重跑同步即可
+
+### 4. 非 Docker 部署安装 CLI
+
+```bash
+bash scripts/install-kdocs-cli.sh        # 默认 v2.7.1，或 bash scripts/install-kdocs-cli.sh <版本>
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+## 方式二：金山文档开放平台（企业认证）
+
+详见下文。适合已有企业开发者资质、需要正式应用配额（1000 万次/天）的场景。
 
 ## 1. 注册开发者并认证
 

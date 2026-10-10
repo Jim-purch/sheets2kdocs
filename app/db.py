@@ -66,6 +66,12 @@ CREATE TABLE IF NOT EXISTS kdocs_tokens (
     open_id TEXT DEFAULT '',
     updated_at TEXT DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT DEFAULT '',
+    updated_at TEXT DEFAULT ''
+);
 """
 
 

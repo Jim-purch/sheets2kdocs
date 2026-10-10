@@ -8,7 +8,7 @@ from fastapi.responses import RedirectResponse
 
 from . import db, scheduler
 from .config import settings
-from .kdocs_client import KdocsClient, KdocsError, authorize_url
+from .kdocs_client import KdocsClient, KdocsError, authorize_url, backend_name
 from .main import templates
 from .security import (
     SESSION_COOKIE,
@@ -74,9 +74,17 @@ def logout():
 def dashboard(request: Request, msg: str = "", err: str = ""):
     tasks = [dict(t) for t in db.q_all("SELECT * FROM sync_tasks ORDER BY id DESC")]
     next_runs = scheduler.next_run_times()
-    token = db.q_one("SELECT * FROM kdocs_tokens WHERE id = 1")
-    kdocs_ready = bool(token and token["refresh_token"])
-    configured = bool(settings.kdocs_app_id and settings.kdocs_app_key)
+    backend = backend_name()
+    if backend == "cli":
+        from .kdocs_cli import get_setting
+
+        token = get_setting("cli_token")
+        kdocs_ready = bool(token)
+        kdocs_configured = True
+    else:
+        token = db.q_one("SELECT * FROM kdocs_tokens WHERE id = 1")
+        kdocs_ready = bool(token and token["refresh_token"])
+        kdocs_configured = bool(settings.kdocs_app_id and settings.kdocs_app_key)
     recent_errors = [
         dict(l) for l in db.q_all(
             "SELECT * FROM sync_logs WHERE status='error' ORDER BY id DESC LIMIT 5"
@@ -86,7 +94,8 @@ def dashboard(request: Request, msg: str = "", err: str = ""):
         request, "dashboard.html",
         {
             "tasks": tasks, "next_runs": next_runs, "kdocs_ready": kdocs_ready,
-            "kdocs_configured": configured, "recent_errors": recent_errors,
+            "kdocs_configured": kdocs_configured, "backend": backend,
+            "recent_errors": recent_errors,
             "msg": msg, "err": err,
         },
     )
@@ -285,10 +294,26 @@ def logs_page(request: Request, task_id: int = 0):
 # ------------------------------------------------------------ kdocs auth
 @router.get("/auth/kdocs")
 def kdocs_auth_page(request: Request, msg: str = "", err: str = "", ok: int = 0):
-    token = db.q_one("SELECT * FROM kdocs_tokens WHERE id = 1")
-    authorized = bool(token and token["refresh_token"])
+    backend = backend_name()
     import time as _time
 
+    if backend == "cli":
+        from .kdocs_cli import get_setting
+
+        token = get_setting("cli_token")
+        masked = f"{token[:6]}…{token[-4:]}" if len(token) > 12 else ""
+        return templates.TemplateResponse(
+            request, "kdocs_cli_auth.html",
+            {
+                "backend": backend, "authorized": bool(token),
+                "token_masked": masked, "msg": msg, "err": err, "ok": ok,
+                "cli_configured": bool(token or settings.kdocs_cli_token_hint),
+                "cli_path": settings.__dict__.get("kdocs_cli_path", "kdocs-cli"),
+            },
+        )
+
+    token = db.q_one("SELECT * FROM kdocs_tokens WHERE id = 1")
+    authorized = bool(token and token["refresh_token"])
     status = None
     if authorized:
         status = {
@@ -308,9 +333,9 @@ def kdocs_auth_page(request: Request, msg: str = "", err: str = "", ok: int = 0)
     return templates.TemplateResponse(
         request, "kdocs_auth.html",
         {
-            "authorized": authorized, "status": status, "auth_link": link,
-            "link_error": link_error, "msg": msg, "err": err, "ok": ok,
-            "app_configured": bool(settings.kdocs_app_id and settings.kdocs_app_key),
+            "backend": backend, "authorized": authorized, "status": status,
+            "auth_link": link, "link_error": link_error, "msg": msg, "err": err,
+            "ok": ok, "app_configured": bool(settings.kdocs_app_id and settings.kdocs_app_key),
             "redirect_uri": settings.kdocs_redirect_uri,
             "app_id": settings.kdocs_app_id,
         },
@@ -327,6 +352,22 @@ def kdocs_callback(code: str = "", error: str = "", error_description: str = "")
         client = KdocsClient(settings.kdocs_app_id, settings.kdocs_app_key)
         client.exchange_code(code)
     except KdocsError as e:
+        return _redirect(f"/auth/kdocs?err={e}")
+    return _redirect("/auth/kdocs?ok=1")
+
+
+@router.post("/auth/kdocs/cli-token")
+def kdocs_cli_token_submit(request: Request, token: str = Form("")):
+    token = token.strip()
+    if not token:
+        return _redirect("/auth/kdocs?err=请粘贴 token")
+    from .kdocs_cli import KdocsCliClient, KdocsCliError, invalidate_token_cache, set_setting
+
+    set_setting("cli_token", token)
+    invalidate_token_cache()
+    try:
+        KdocsCliClient(token=token).test_connection()
+    except KdocsCliError as e:
         return _redirect(f"/auth/kdocs?err={e}")
     return _redirect("/auth/kdocs?ok=1")
 

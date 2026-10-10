@@ -17,10 +17,14 @@
 {% if not kdocs_configured %}
 <div class="alert warn">
   尚未配置 Kdocs 开放平台凭据（.env 中的 KDOCS_APP_ID / KDOCS_APP_KEY），
-  请先阅读 <a href="https://github.com/#setup">部署文档</a> 并到 <a href="/auth/kdocs">Kdocs 授权</a> 页完成授权。
+  请先阅读部署文档并到 <a href="/auth/kdocs">Kdocs 授权</a> 页完成授权；
+  或免企业认证使用个人账号模式：.env 设置 <code class="kbd">KDOCS_BACKEND=cli</code>。
 </div>
 {% elif not kdocs_ready %}
-<div class="alert warn">已配置应用凭据，但还未完成 Kdocs OAuth 授权 → <a href="/auth/kdocs">去授权</a></div>
+<div class="alert warn">
+  {% if backend == 'cli' %}CLI 模式还未保存个人 Token → <a href="/auth/kdocs">去获取</a>
+  {% else %}已配置应用凭据，但还未完成 Kdocs OAuth 授权 → <a href="/auth/kdocs">去授权</a>{% endif %}
+</div>
 {% endif %}
 
 <div class="card">

@@ -192,7 +192,15 @@ async function loadFiles() {
   const sel = $('file_select');
   try {
     const data = await jget('/api/kdocs/files');
-    const files = data.files.filter(f => (f.ftype || '').toLowerCase().includes('ksheet') || (f.name || '').toLowerCase().endsWith('.ksheet'));
+    const files = data.files.filter(f => {
+      const name = (f.name || '').toLowerCase();
+      const ftype = (f.ftype || '').toLowerCase();
+      const isFolder = ftype === 'folder' || f.type === 'folder';
+      if (isFolder) return false;
+      return name.includes('ksheet') || name.includes('dbt')
+        || ftype.includes('ksheet') || (f.ext || '').toLowerCase().includes('dbt')
+        || ftype === 'file'; // cli backend: keep plain files, sheets filter happens on select
+    });
     sel.innerHTML = '<option value="">— 选择文件 —</option>' +
       files.map(f => `<option value="${esc(f.file_token)}">${esc(f.name)}</option>`).join('');
     if (INIT.fileToken) {

@@ -12,7 +12,7 @@ from typing import Any
 from . import db
 from .config import settings
 from .google_source import GoogleSourceError, fetch_sheet_rows
-from .kdocs_client import KdocsClient, KdocsError
+from .kdocs_client import get_backend, KdocsError
 
 logger = logging.getLogger("sheets2kdocs.sync")
 
@@ -189,7 +189,7 @@ def _run_task_impl(task) -> dict[str, Any]:
             for f in r:
                 r[f] = coerce(r[f], bool(task["coerce_numbers"]))
 
-        client = KdocsClient(settings.kdocs_app_id, settings.kdocs_app_key)
+        client = get_backend()
 
         if task["auto_create_fields"]:
             still_missing = client.ensure_fields(

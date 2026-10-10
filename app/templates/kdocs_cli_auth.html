@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Kdocs 连接 · sheets2kdocs{% endblock %}
+{% block content %}
+<h1>Kdocs（金山文档）连接</h1>
+<p class="muted">当前后端：<span class="badge on">kdocs-cli（个人账号）</span> — 无需企业认证</p>
+
+{% if msg %}<div class="alert ok">{{ msg }}</div>{% endif %}
+{% if ok %}<div class="alert ok">Token 已保存并验证通过！现在可以创建同步任务了。</div>{% endif %}
+{% if err %}<div class="alert error">{{ err }}</div>{% endif %}
+
+<div class="card">
+  <h2>① 当前状态</h2>
+  {% if authorized %}
+    <div class="alert ok">已配置 token（{{ token_masked }}）。token 有效期约 1 年，到期后在下方更新即可。</div>
+  {% else %}
+    <div class="alert warn">尚未配置 token。</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>② 获取并保存 Token</h2>
+  <ol class="small muted" style="line-height:2">
+    <li>在浏览器登录 <strong>WPS 个人账号</strong>（企业账号不可用，会 403）</li>
+    <li>打开 <a href="https://www.kdocs.cn/latest" target="_blank" rel="noopener">kdocs.cn/latest</a>
+        → 右上角头像旁主菜单 → <strong>「金山文档Skill」</strong> → 复制 Token</li>
+    <li>粘贴到下面保存（保存后自动做连接测试，无需重启服务）</li>
+  </ol>
+  <form method="post" action="/auth/kdocs/cli-token" class="inline">
+    <div><label>个人账号 Token</label>
+      <input type="password" name="token" placeholder="粘贴 kdocs.cn 获取的 Skill Token" required></div>
+    <div style="flex:0"><button class="btn primary">保存并测试</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <h2>③ 说明</h2>
+  <ul class="small muted" style="line-height:1.9">
+    <li>同步目标：授权账号「我的文档」下的<strong>多维表格 / 智能表格（数据表）</strong></li>
+    <li>目标文件也可共享给该账号，然后用 file_id 直接填入任务表单</li>
+    <li>Token 仅保存在服务端数据库；管理页只显示掩码</li>
+    <li>如需切换回企业 OpenAPI 模式：把 .env 的 <code class="kbd">KDOCS_BACKEND</code> 改为 <code class="kbd">openapi</code> 并重启</li>
+  </ul>
+</div>
+{% endblock %}

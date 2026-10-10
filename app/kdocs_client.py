@@ -352,3 +352,26 @@ def client_from_settings() -> KdocsClient:
     from .config import settings
 
     return KdocsClient(settings.kdocs_app_id, settings.kdocs_app_key)
+
+
+def get_backend():
+    """Return the active Kdocs client based on KDOCS_BACKEND setting.
+
+    'openapi' (default): enterprise-verified OpenAPI app (app_id/app_key + OAuth)
+    'cli':               kdocs-cli binary with a personal-account Skill token
+                         (no enterprise verification required)
+    """
+    from .config import settings
+
+    backend = (settings.kdocs_backend or "openapi").lower()
+    if backend == "cli":
+        from .kdocs_cli import KdocsCliClient
+
+        return KdocsCliClient()
+    return client_from_settings()
+
+
+def backend_name() -> str:
+    from .config import settings
+
+    return (settings.kdocs_backend or "openapi").lower()

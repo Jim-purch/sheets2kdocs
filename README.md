@@ -37,7 +37,7 @@ git clone https://github.com/<you>/sheets2kdocs.git
 cd sheets2kdocs
 
 cp .env.example .env
-# 编辑 .env：设置管理账密、SECRET_KEY、BASE_URL、KDOCS_APP_ID/KDOCS_APP_KEY
+# 编辑 .env：设置管理账密、SECRET_KEY、KDOCS_BACKEND=cli（免企业认证推荐）
 
 docker compose up -d --build
 # 访问 http://<服务器IP>:8300
@@ -45,19 +45,30 @@ docker compose up -d --build
 
 ### 前置条件
 
-1. **金山文档开放平台应用**（企业开发者认证，详见 [docs/KDOCS_SETUP.md](docs/KDOCS_SETUP.md)）
-   - 在应用后台登记回调地址：`{BASE_URL}/auth/kdocs/callback`
-   - 申请权限：`user_basic` `access_personal_files` `edit_personal_files` `download_personal_files`
+1. **Kdocs 侧**（二选一）：
+   - **cli 模式（推荐）**：无需企业认证。部署后在管理页「Kdocs 连接」粘贴个人 Token（获取方式：登录 [kdocs.cn](https://www.kdocs.cn/latest) → 右上角主菜单 → 金山文档Skill → 复制 Token）
+   - **openapi 模式**：金山文档开放平台企业认证 + 创建应用，详见 [docs/KDOCS_SETUP.md](docs/KDOCS_SETUP.md)
 2. **Google 表格**：公开同步只需把表格设为「知道链接的任何人 → 查看者」
-3. 目标智能表格（.ksheet）内需要有一个**数据表**类型的 sheet（智能表格里「+ 新建数据表」创建的那种）
+3. 目标文件：多维表格（.dbt）或智能表格（.ksheet）内的**数据表** sheet
+
+### 两种 Kdocs 接入模式
+
+| 模式 | 认证要求 | 适用 |
+|---|---|---|
+| **cli（推荐，免企业认证）** | WPS 个人账号 Token（`kdocs.cn` → 菜单 → 金山文档Skill → 复制，有效期约 1 年） | 个人/小团队，目标为多维表格或智能表格数据表 |
+| openapi | 金山文档开放平台企业认证 + 创建应用 | 已有企业开发者资质，需要正式应用配额 |
+
+两种模式功能一致（记录级增删改查、字段自动创建、定时同步）。`.env` 里 `KDOCS_BACKEND=cli` 或 `openapi` 切换；cli 模式的 Token 在管理页「Kdocs 连接」里粘贴保存、热更新。
 
 ## 使用
 
 1. 打开管理页面，用 `.env` 里的账密登录
-2. 进入 **Kdocs 授权** 页，点击「打开 Kdocs 授权页面」完成授权（或手动粘贴 code / refresh_token）
+2. 进入 **Kdocs 连接 / 授权** 页：
+   - cli 模式：粘贴个人 Token → 保存并测试
+   - openapi 模式：点击「打开 Kdocs 授权页面」完成授权（或手动粘贴 code / refresh_token）
 3. **新建同步任务**：
    - 粘贴 Google 表格链接 → 点「读取源表头」测试连接
-   - 选择目标智能表格文件和数据表（也可一键「用源表头新建数据表」）
+   - 选择目标文件和数据表（也可一键「用源表头新建数据表」）
    - 检查字段映射，选择 upsert 键列
    - 设置定时计划（间隔分钟数或 cron），保存
 4. 点「▶ 运行」立即同步一次，到 **运行日志** 查看结果
@@ -100,8 +111,8 @@ docker compose up -d --build
 **Q: 提示「gviz 返回了 HTML」？**
 表格没有公开分享。Google Sheets → 分享 → 一般访问权限 → 「知道链接的任何人」→ 查看者。
 
-**Q: Kdocs 令牌一直刷新失败？**
-refresh_token 有效期 90 天，过期需到「Kdocs 授权」页重新授权；另检查服务器时间是否准确（NTP）。
+**Q: Kdocs 令牌/Token 过期了？**
+cli 模式的个人 Token 有效期约 1 年，到期到「Kdocs 连接」页重新粘贴即可（保存即生效，无需重启）；openapi 模式 refresh_token 90 天，过期需重新授权。另检查服务器时间是否准确（NTP）。
 
 **Q: 文件列表里看不到目标表格？**
 文件列表只展示授权账号「我的文档」下的文件；共享给我的文件或企业盘文件请手动填 file_token（智能表格内右键标签 → 文档信息 → 文件ID）。
