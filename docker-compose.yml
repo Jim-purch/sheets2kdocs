@@ -1,0 +1,13 @@
+services:
+  sheets2kdocs:
+    build: .
+    image: sheets2kdocs:latest
+    container_name: sheets2kdocs
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - DATA_DIR=/app/data
+    ports:
+      - "8300:8300"          # 仅本机访问可改为 "127.0.0.1:8300:8300"
+    volumes:
+      - ./data:/app/data

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}登录 · sheets2kdocs{% endblock %}
+{% block content %}
+<div class="login-card card">
+  <h1>sheets<span class="accent">2</span>kdocs</h1>
+  <p class="muted">Google Sheets → 金山文档智能表格 定时同步</p>
+  {% if error %}<div class="alert error">{{ error }}</div>{% endif %}
+  <form method="post" action="/login">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>用户名</label>
+    <input type="text" name="username" autofocus autocomplete="username" required>
+    <label>密码</label>
+    <input type="password" name="password" autocomplete="current-password" required>
+    <button type="submit" class="btn primary block">登录</button>
+  </form>
+  <p class="muted small">凭据来自部署目录下的 .env（ADMIN_USERNAME / ADMIN_PASSWORD）</p>
+</div>
+{% endblock %}

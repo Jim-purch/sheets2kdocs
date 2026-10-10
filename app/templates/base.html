@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}sheets2kdocs{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+{% set current_user = request.state.user if request.state.user is defined else None %}
+{% if current_user %}
+<nav class="topnav">
+  <a class="brand" href="/">sheets<span>2</span>kdocs</a>
+  <div class="navlinks">
+    <a href="/" {% if request.url.path == "/" %}class="active"{% endif %}>同步任务</a>
+    <a href="/logs" {% if request.url.path == "/logs" %}class="active"{% endif %}>运行日志</a>
+    <a href="/auth/kdocs" {% if request.url.path.startswith('/auth') %}class="active"{% endif %}>Kdocs 授权</a>
+  </div>
+  <form method="post" action="/logout" class="logoutform">
+    <span class="muted">{{ current_user }}</span>
+    <button type="submit" class="btn ghost sm">退出</button>
+  </form>
+</nav>
+{% endif %}
+<main class="container">
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

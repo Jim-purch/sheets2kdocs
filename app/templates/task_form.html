@@ -1,0 +1,331 @@
+{% extends "base.html" %}
+{% block title %}{{ '编辑任务' if task else '新建任务' }} · sheets2kdocs{% endblock %}
+{% block content %}
+<h1>{{ '编辑同步任务' if task else '新建同步任务' }}</h1>
+{% if err %}<div class="alert error">{{ err }}</div>{% endif %}
+
+<form method="post" action="{{ '/tasks/%d/edit'|format(task.id) if task else '/tasks/new' }}" id="taskform">
+<input type="hidden" name="gid" id="gid" value="{{ task.gid if task else '' }}">
+<input type="hidden" name="target_file_name" id="target_file_name" value="{{ task.target_file_name if task else '' }}">
+<input type="hidden" name="target_sheet_name" id="target_sheet_name" value="{{ task.target_sheet_name if task else '' }}">
+<input type="hidden" name="field_mapping" id="field_mapping" value="{{ mapping|tojson if mapping else '' }}">
+
+<div class="card">
+  <h2>① 任务名称</h2>
+  <input type="text" name="name" required placeholder="例如：产品价格表 → 智能表格"
+         value="{{ task.name if task else '' }}">
+</div>
+
+<div class="card">
+  <h2>② 源：Google Sheets</h2>
+  <label>表格链接（分享链接即可）</label>
+  <input type="url" name="source_url" id="source_url" required class="mono"
+         placeholder="https://docs.google.com/spreadsheets/d/…/edit#gid=0"
+         value="{{ task.source_url if task else '' }}">
+  <div class="inline">
+    <div>
+      <label>读取方式</label>
+      <select name="source_mode" id="source_mode">
+        <option value="public" {{ 'selected' if task and task.source_mode == 'public' }}>公开链接（表格需「知道链接的任何人可查看」）</option>
+        <option value="api_key" {{ 'selected' if task and task.source_mode == 'api_key' }}>API Key（.env 配置 GOOGLE_API_KEY）</option>
+        <option value="sa" {{ 'selected' if task and task.source_mode == 'sa' }}>Service Account（可读私有表）</option>
+      </select>
+    </div>
+    <div>
+      <label>工作表名称（可选，留空用链接中的 gid）</label>
+      <input type="text" name="sheet_name" id="sheet_name" placeholder="Sheet1"
+             value="{{ task.sheet_name if task else '' }}">
+    </div>
+    <div>
+      <label>A1 范围（可选，如 A1:Z100）</label>
+      <input type="text" name="source_range" id="source_range" class="mono"
+             placeholder="留空读取整表"
+             value="{{ task.source_range if task else '' }}">
+    </div>
+  </div>
+  <div style="margin-top:10px">
+    <button type="button" class="btn" id="btn-preview">读取源表头 / 测试连接</button>
+    <span id="preview-status" class="muted small"></span>
+  </div>
+  <div id="preview-result"></div>
+</div>
+
+<div class="card">
+  <h2>③ 目标：Kdocs 智能表格</h2>
+  <div class="inline">
+    <div>
+      <label>目标文件（智能表格 .ksheet）</label>
+      <select id="file_select"><option value="">加载中…</option></select>
+    </div>
+    <div>
+      <label>或手动填 file_token</label>
+      <input type="text" id="file_token" class="mono" placeholder="右键表格标签 → 文档信息 → 文件ID"
+             value="{{ task.target_file_token if task else '' }}">
+    </div>
+  </div>
+  <div class="inline">
+    <div>
+      <label>目标数据表（类型为「数据表」的 sheet）</label>
+      <select name="target_sheet_id" id="sheet_select" required><option value="">先选择文件</option></select>
+    </div>
+    <div style="flex:0;align-self:end">
+      <button type="button" class="btn" id="btn-create-table" title="用当前源表头在目标文件里新建一个数据表">用源表头新建数据表</button>
+    </div>
+  </div>
+  <div class="chips" id="target-fields-chips"></div>
+  <p class="small muted">看不到目标文件？确认该文件在授权账号的「我的文档」下，或直接手动填 file_token。</p>
+</div>
+
+<div class="card">
+  <h2>④ 字段映射</h2>
+  <p class="small muted">左侧为 Google 源表头，右侧选择写入目标表的字段名。留空（跳过）表示该列不同步。名称相同会自动匹配。</p>
+  <div class="table-wrap mapping-table" id="mapping-table"><p class="muted">完成 ②③ 后自动生成映射表。</p></div>
+</div>
+
+<div class="card">
+  <h2>⑤ 同步方式</h2>
+  <div class="inline">
+    <div>
+      <label>同步模式</label>
+      <select name="mode" id="mode">
+        <option value="upsert" {{ 'selected' if not task or task.mode == 'upsert' }}>增量 upsert（按键列比对，增/改/删）</option>
+        <option value="replace" {{ 'selected' if task and task.mode == 'replace' }}>全量替换（清空目标表后写入）</option>
+      </select>
+    </div>
+    <div>
+      <label>唯一键列（upsert 用，取自源表头）</label>
+      <select name="key_field" id="key_field"><option value="">先读取源表头</option></select>
+    </div>
+  </div>
+  <div class="checkbox">
+    <input type="checkbox" name="auto_create_fields" id="acf" {{ 'checked' if not task or task.auto_create_fields }}>
+    <label for="acf">目标表缺少字段时自动创建（SingleLineText）</label>
+  </div>
+  <div class="checkbox">
+    <input type="checkbox" name="coerce_numbers" id="cn" {{ 'checked' if task and task.coerce_numbers }}>
+    <label for="cn">纯数字字符串转数值（保留前导零，如编号 007 不转换）</label>
+  </div>
+  <div class="alert warn small">⚠ upsert 会删除目标表中键值不在源表的记录；replace 会清空目标表全部记录后重写。</div>
+</div>
+
+<div class="card">
+  <h2>⑥ 定时计划</h2>
+  <div class="inline">
+    <div>
+      <label>计划类型</label>
+      <select name="schedule_type" id="schedule_type">
+        <option value="manual" {{ 'selected' if not task or task.schedule_type == 'manual' }}>仅手动</option>
+        <option value="interval" {{ 'selected' if task and task.schedule_type == 'interval' }}>固定间隔（分钟）</option>
+        <option value="cron" {{ 'selected' if task and task.schedule_type == 'cron' }}>cron 表达式</option>
+      </select>
+    </div>
+    <div>
+      <label>计划值</label>
+      <input type="text" name="schedule_value" id="schedule_value" class="mono"
+             placeholder="30 或 */30 * * * *"
+             value="{{ task.schedule_value if task else '' }}">
+    </div>
+  </div>
+  <p class="small muted">cron 为 5 段式（分 时 日 月 周），如 <code class="kbd">0 8 * * *</code> 每天 8 点。时区为服务器时区。</p>
+  <div class="checkbox">
+    <input type="checkbox" name="enabled" id="enabled" {{ 'checked' if not task or task.enabled }}>
+    <label for="enabled">启用任务</label>
+  </div>
+</div>
+
+<button type="submit" class="btn primary">保存任务</button>
+<a class="btn ghost" href="/">取消</a>
+</form>
+
+<script>
+const INIT = {
+  fileToken: {{ (task.target_file_token if task else '')|tojson }},
+  sheetId: {{ (task.target_sheet_id if task else '')|tojson }},
+  mapping: {{ (mapping if mapping else {})|tojson }},
+  mappingMode: {{ 'true' if task else 'false' }}
+};
+const S = { headers: [], targetFields: [], mapping: INIT.mapping };
+const $ = (id) => document.getElementById(id);
+
+async function jget(url) {
+  const r = await fetch(url);
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.detail || body.error || ('HTTP ' + r.status));
+  return body;
+}
+
+/* ---------- source preview ---------- */
+async function previewSource() {
+  const url = $('source_url').value.trim();
+  if (!url) { alert('请先填写表格链接'); return; }
+  $('preview-status').textContent = '读取中…';
+  try {
+    const params = new URLSearchParams({
+      url, sheet_name: $('sheet_name').value.trim(),
+      source_range: $('source_range').value.trim(),
+      mode: $('source_mode').value,
+    });
+    const data = await jget('/api/google/preview?' + params);
+    S.headers = data.headers;
+    if (data.gid) $('gid').value = data.gid;
+    $('preview-status').textContent = `共 ${data.total_rows} 行数据，表头 ${data.headers.length} 列`;
+    let html = '<div class="chips">' + data.headers.map(h => `<span class="chip">${esc(h)}</span>`).join('') + '</div>';
+    if (data.sample_rows.length) {
+      html += '<div class="table-wrap"><table>';
+      html += '<tr>' + data.headers.map(h => `<th>${esc(h)}</th>`).join('') + '</tr>';
+      data.sample_rows.forEach(row => {
+        html += '<tr>' + data.headers.map((_, i) => `<td class="small">${esc(row[i] ?? '')}</td>`).join('') + '</tr>';
+      });
+      html += '</table></div>';
+    }
+    $('preview-result').innerHTML = html;
+    fillKeyFieldSelect();
+    buildMapping();
+  } catch (e) {
+    $('preview-status').textContent = '';
+    $('preview-result').innerHTML = `<div class="alert error">${esc(e.message)}</div>`;
+  }
+}
+
+/* ---------- target file / sheet / fields ---------- */
+async function loadFiles() {
+  const sel = $('file_select');
+  try {
+    const data = await jget('/api/kdocs/files');
+    const files = data.files.filter(f => (f.ftype || '').toLowerCase().includes('ksheet') || (f.name || '').toLowerCase().endsWith('.ksheet'));
+    sel.innerHTML = '<option value="">— 选择文件 —</option>' +
+      files.map(f => `<option value="${esc(f.file_token)}">${esc(f.name)}</option>`).join('');
+    if (INIT.fileToken) {
+      sel.value = INIT.fileToken;
+      if (sel.value !== INIT.fileToken) {  // not in list, keep manual
+        sel.insertAdjacentHTML('afterbegin', `<option value="${esc(INIT.fileToken)}" selected>（当前已保存的文件）</option>`);
+      }
+    }
+  } catch (e) {
+    sel.innerHTML = `<option value="">文件列表加载失败：${esc(e.message)}</option>`;
+  }
+}
+
+function currentFileToken() {
+  return $('file_token').value.trim() || $('file_select').value || '';
+}
+
+async function loadSheets() {
+  const ft = currentFileToken();
+  const sel = $('sheet_select');
+  if (!ft) { sel.innerHTML = '<option value="">先选择文件</option>'; return; }
+  sel.innerHTML = '<option value="">加载中…</option>';
+  try {
+    const data = await jget('/api/kdocs/sheets/' + encodeURIComponent(ft));
+    const dbs = data.sheets.filter(s => s.type === 'db');
+    if (!dbs.length) {
+      sel.innerHTML = '<option value="">该文件没有「数据表」类型的 sheet（智能表格里需先建数据表）</option>';
+      return;
+    }
+    sel.innerHTML = '<option value="">— 选择数据表 —</option>' +
+      dbs.map(s => `<option value="${s.sheet_id}">${esc(s.name)} (id=${s.sheet_id})</option>`).join('');
+    if (INIT.sheetId) sel.value = String(INIT.sheetId);
+    loadFields();
+  } catch (e) {
+    sel.innerHTML = `<option value="">加载失败：${esc(e.message)}</option>`;
+  }
+}
+
+async function loadFields() {
+  const ft = currentFileToken(), sid = $('sheet_select').value;
+  $('target-fields-chips').innerHTML = '';
+  S.targetFields = [];
+  if (!ft || !sid) { buildMapping(); return; }
+  try {
+    const data = await jget(`/api/kdocs/fields/${encodeURIComponent(ft)}/${sid}`);
+    S.targetFields = (data.fields || []).map(f => f.name).filter(Boolean);
+    $('target-fields-chips').innerHTML = S.targetFields.map(n => `<span class="chip">${esc(n)}</span>`).join('');
+    buildMapping();
+  } catch (e) {
+    $('target-fields-chips').innerHTML = `<span class="small" style="color:var(--danger)">字段加载失败: ${esc(e.message)}</span>`;
+  }
+}
+
+/* ---------- mapping ---------- */
+function fillKeyFieldSelect() {
+  const sel = $('key_field');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— 选择 —</option>' +
+    S.headers.map(h => `<option value="${esc(h)}">${esc(h)}</option>`).join('');
+  const saved = {{ (task.key_field if task else '')|tojson }};
+  if (saved) sel.value = saved; else sel.value = cur;
+}
+
+function buildMapping() {
+  const box = $('mapping-table');
+  if (!S.headers.length) { box.innerHTML = '<p class="muted">读取源表头后生成映射表。</p>'; return; }
+  let html = '<table><tr><th>源表头</th><th>→ 目标字段</th></tr>';
+  S.headers.forEach(h => {
+    let cur = S.mapping[h] !== undefined ? S.mapping[h] : (S.targetFields.includes(h) ? h : '');
+    const opts = ['<option value=""' + (cur === '' ? ' selected' : '') + '>（跳过）</option>']
+      .concat(S.targetFields.map(f => `<option value="${esc(f)}"${f === cur ? ' selected' : ''}>${esc(f)}</option>`));
+    if (cur && !S.targetFields.includes(cur)) {
+      opts.push(`<option value="${esc(cur)}" selected>${esc(cur)}（目标暂无此字段）</option>`);
+    }
+    html += `<tr><td class="mono">${esc(h)}</td><td><select data-src="${esc(h)}" class="mapsel">${opts.join('')}</select></td></tr>`;
+  });
+  html += '</table>';
+  box.innerHTML = html;
+}
+
+function collectMapping() {
+  const sels = document.querySelectorAll('.mapsel');
+  if (sels.length) {
+    const m = {};
+    sels.forEach(sel => { if (sel.value) m[sel.dataset.src] = sel.value; });
+    $('field_mapping').value = JSON.stringify(m);
+  }
+  /* no mapping rows rendered -> keep existing hidden value (edit mode without re-preview) */
+}
+
+/* ---------- create table ---------- */
+async function createTable() {
+  const ft = currentFileToken();
+  if (!ft) { alert('请先选择目标文件'); return; }
+  if (!S.headers.length) { alert('请先读取源表头'); return; }
+  const name = prompt('新数据表名称：', '同步数据');
+  if (!name) return;
+  try {
+    const r = await fetch('/api/kdocs/tables', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ file_token: ft, name, fields: S.headers }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || data.error || ('HTTP ' + r.status));
+    INIT.sheetId = String(data.sheet_id);
+    $('file_token').value = ft;
+    $('sheet_select').innerHTML = `<option value="${data.sheet_id}" selected>${esc(data.name)} (id=${data.sheet_id})</option>`;
+    await loadFields();
+    alert('数据表已创建并选中，字段类型均为 SingleLineText，可在 Kdocs 里调整。');
+  } catch (e) {
+    alert('创建失败：' + e.message);
+  }
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ---------- wire up ---------- */
+$('btn-preview').addEventListener('click', previewSource);
+$('btn-create-table').addEventListener('click', createTable);
+$('file_select').addEventListener('change', () => { $('file_token').value = ''; loadSheets(); });
+$('file_token').addEventListener('change', loadSheets);
+$('sheet_select').addEventListener('change', loadFields);
+$('source_mode').addEventListener('change', () => { $('preview-status').textContent = ''; });
+$('taskform').addEventListener('submit', collectMapping);
+
+/* edit mode: rebuild mapping from saved mapping keys until a fresh preview is run */
+if (INIT.mappingMode && Object.keys(INIT.mapping).length) {
+  S.headers = Object.keys(INIT.mapping);
+  fillKeyFieldSelect();
+}
+loadFiles();
+loadSheets();
+</script>
+{% endblock %}

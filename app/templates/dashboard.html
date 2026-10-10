@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}同步任务 · sheets2kdocs{% endblock %}
+{% block content %}
+<div class="grid2">
+  <div>
+    <h1>同步任务</h1>
+    <p class="muted">Google Sheets → 金山文档智能表格</p>
+  </div>
+  <div style="text-align:right">
+    <a class="btn primary" href="/tasks/new">+ 新建同步任务</a>
+  </div>
+</div>
+
+{% if msg %}<div class="alert ok">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert error">{{ err }}</div>{% endif %}
+
+{% if not kdocs_configured %}
+<div class="alert warn">
+  尚未配置 Kdocs 开放平台凭据（.env 中的 KDOCS_APP_ID / KDOCS_APP_KEY），
+  请先阅读 <a href="https://github.com/#setup">部署文档</a> 并到 <a href="/auth/kdocs">Kdocs 授权</a> 页完成授权。
+</div>
+{% elif not kdocs_ready %}
+<div class="alert warn">已配置应用凭据，但还未完成 Kdocs OAuth 授权 → <a href="/auth/kdocs">去授权</a></div>
+{% endif %}
+
+<div class="card">
+  {% if tasks %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>任务</th><th>源 → 目标</th><th>模式</th><th>计划</th><th>状态</th><th>最近运行</th><th>下次运行</th><th>操作</th></tr>
+    {% for t in tasks %}
+    <tr>
+      <td><strong>{{ t.name }}</strong></td>
+      <td class="small">
+        {{ t.spreadsheet_id[:8] }}…{% if t.sheet_name %} / {{ t.sheet_name }}{% endif %}
+        → {{ t.target_file_name or t.target_file_token[:8] }} / {{ t.target_sheet_name or t.target_sheet_id }}
+      </td>
+      <td>
+        <span class="badge on">{{ 'upsert' if t.mode == 'upsert' else 'replace' }}</span>
+        {% if t.source_mode != 'public' %}<span class="badge off">{{ t.source_mode }}</span>{% endif %}
+      </td>
+      <td class="small">
+        {% if t.schedule_type == 'manual' %}手动{% elif t.schedule_type == 'interval' %}每 {{ t.schedule_value }} 分钟{% else %}<code class="kbd">{{ t.schedule_value }}</code>{% endif %}
+        {% if not t.enabled %}<span class="badge off">已停用</span>{% endif %}
+      </td>
+      <td>
+        {% if t.last_status == 'ok' %}<span class="badge ok">成功</span>
+        {% elif t.last_status == 'error' %}<span class="badge error">失败</span>
+        {% elif t.last_status == 'running' %}<span class="badge running">运行中</span>
+        {% else %}<span class="badge off">未运行</span>{% endif %}
+      </td>
+      <td class="small">{{ t.last_run_at or '—' }}
+        {% if t.last_error %}<br><span class="small" style="color:var(--danger)">{{ t.last_error[:80] }}</span>{% endif %}
+      </td>
+      <td class="small">{{ next_runs.get(t.id, '—') }}</td>
+      <td>
+        <div class="actions">
+          <form method="post" action="/tasks/{{ t.id }}/run"><button class="btn sm" title="立即同步">▶ 运行</button></form>
+          <a class="btn sm" href="/tasks/{{ t.id }}/edit">编辑</a>
+          <a class="btn sm" href="/logs?task_id={{ t.id }}">日志</a>
+          <form method="post" action="/tasks/{{ t.id }}/toggle"><button class="btn sm">{{ '停用' if t.enabled else '启用' }}</button></form>
+          <form method="post" action="/tasks/{{ t.id }}/delete"
+                onsubmit="return confirm('确定删除任务「{{ t.name }}」？相关日志也会删除。')">
+            <button class="btn sm danger">删除</button>
+          </form>
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <div class="empty">还没有同步任务。点击右上角「新建同步任务」开始。</div>
+  {% endif %}
+</div>
+
+{% if recent_errors %}
+<div class="card">
+  <h2>最近失败</h2>
+  <div class="table-wrap">
+  <table>
+    <tr><th>时间</th><th>任务</th><th>错误</th></tr>
+    {% for l in recent_errors %}
+    <tr>
+      <td class="small">{{ l.started_at }}</td>
+      <td class="small">{{ l.task_name }}</td>
+      <td class="small" style="color:var(--danger)">{{ l.error[:160] }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

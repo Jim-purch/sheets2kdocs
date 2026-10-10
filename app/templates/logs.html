@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}运行日志 · sheets2kdocs{% endblock %}
+{% block content %}
+<h1>运行日志</h1>
+<div class="card">
+  <form method="get" action="/logs" class="inline">
+    <div>
+      <label>按任务筛选</label>
+      <select name="task_id">
+        <option value="0">全部任务</option>
+        {% for t in tasks %}
+        <option value="{{ t.id }}" {% if task_id == t.id %}selected{% endif %}>{{ t.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="flex:0"><button class="btn">筛选</button></div>
+  </form>
+</div>
+
+<div class="card">
+  {% if logs %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>开始时间</th><th>任务</th><th>状态</th><th>源行数</th><th>新建</th><th>更新</th><th>删除</th><th>未变</th><th>详情 / 错误</th></tr>
+    {% for l in logs %}
+    <tr>
+      <td class="small">{{ l.started_at }}</td>
+      <td class="small">{{ l.task_name }}</td>
+      <td>{% if l.status == 'ok' %}<span class="badge ok">成功</span>{% else %}<span class="badge error">失败</span>{% endif %}</td>
+      <td>{{ l.rows_total }}</td>
+      <td>{{ l.created }}</td>
+      <td>{{ l.updated }}</td>
+      <td>{{ l.deleted }}</td>
+      <td>{{ l.unchanged }}</td>
+      <td class="small {% if l.status == 'error' %}mono{% endif %}" {% if l.status == 'error' %}style="color:var(--danger)"{% endif %}>{{ (l.error or l.detail)[:200] }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <div class="empty">暂无日志。执行一次同步任务后这里会出现记录。</div>
+  {% endif %}
+</div>
+{% endblock %}

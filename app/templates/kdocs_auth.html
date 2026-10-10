@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Kdocs 授权 · sheets2kdocs{% endblock %}
+{% block content %}
+<h1>Kdocs（金山文档）授权</h1>
+<p class="muted">同步服务需要通过金山文档开放平台的 OAuth 授权，才能写入你的智能表格。</p>
+
+{% if msg %}<div class="alert ok">{{ msg }}</div>{% endif %}
+{% if ok %}<div class="alert ok">授权成功！现在可以创建同步任务了。</div>{% endif %}
+{% if err %}<div class="alert error">{{ err }}</div>{% endif %}
+
+<div class="card">
+  <h2>① 授权状态</h2>
+  {% if authorized %}
+    {% if status.expired %}
+      <div class="alert warn">令牌已过期。可以尝试「手动刷新令牌」（refresh_token 有效期 90 天），失效则需重新授权。</div>
+    {% else %}
+      <div class="alert ok">已授权，令牌有效。access_token 到期时间：{{ status.expires_at }}（授权时间 {{ status.updated_at }}），到期后会自动刷新。</div>
+    {% endif %}
+  {% else %}
+    <div class="alert warn">尚未授权。</div>
+  {% endif %}
+  {% if not app_configured %}
+    <div class="alert error">.env 中未配置 KDOCS_APP_ID / KDOCS_APP_KEY，请先在金山文档开放平台创建应用。</div>
+    <p class="small muted">步骤：注册开发者（需企业认证）→ 创建服务商与应用 → 申请权限
+      <code class="kbd">user_basic</code> <code class="kbd">access_personal_files</code>
+      <code class="kbd">edit_personal_files</code> <code class="kbd">download_personal_files</code>
+      → 回调地址填 <code class="kbd">{{ redirect_uri or 'http://你的服务器地址/auth/kdocs/callback' }}</code></p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>② 方式一：跳转授权页（推荐）</h2>
+  {% if auth_link %}
+    <p>回调地址：<code class="kbd">{{ redirect_uri }}</code>（需与应用后台登记的一致）</p>
+    <a class="btn primary" href="{{ auth_link }}" target="_blank" rel="noopener">打开 Kdocs 授权页面</a>
+    <p class="small muted">授权成功后会跳回本页并自动保存令牌。</p>
+  {% else %}
+    <p class="muted">{% if link_error %}{{ link_error }}{% else %}请先在 .env 配置 KDOCS_APP_ID / KDOCS_APP_KEY / BASE_URL。{% endif %}</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>③ 方式二：手动粘贴 code 换取令牌</h2>
+  <p class="small muted">如果回调地址不方便配置公网，可在授权页授权后，从跳转 URL 中复制 <code class="kbd">code=</code> 参数粘贴到下面（code 5 分钟内有效）。</p>
+  <form method="post" action="/auth/kdocs/exchange" class="inline">
+    <div><label>授权 code</label><input type="text" name="code" placeholder="粘贴 URL 中的 code 参数"></div>
+    <div style="flex:0"><button class="btn">换取令牌</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <h2>④ 手动刷新令牌（refresh_token）</h2>
+  <p class="small muted">refresh_token 有效期 90 天。若已有有效的 refresh_token 可直接粘贴刷新；留空则使用已保存的 refresh_token。</p>
+  <form method="post" action="/auth/kdocs/refresh" class="inline">
+    <div><label>refresh_token（可选）</label><input type="text" name="refresh_token" placeholder="粘贴新的 refresh_token"></div>
+    <div style="flex:0"><button class="btn">刷新令牌</button></div>
+  </form>
+</div>
+{% endblock %}
