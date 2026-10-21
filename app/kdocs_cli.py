@@ -16,16 +16,35 @@ import json
 import os
 import subprocess
 import threading
+import time
 from typing import Any
 
 from . import db
 
-# Batch sizes kept modest: the mcp-center gateway is slow on large payloads
-# and kdocs-cli's own HTTP timeout is not configurable.
+# Batch sizes kept modest: the mcp-center gateway is slow on large payloads.
 BATCH_SIZE = 100
 PAGE_SIZE = 100
 
 DEFAULT_TIMEOUT = int(os.environ.get("KDOCS_CLI_TIMEOUT", "180"))  # per invocation
+
+# kdocs-cli's own HTTP client defaults to a 30s timeout against the
+# mcp-center gateway, which intermittently runs slower on big payloads.
+# Raise it via the CLI's global --timeout flag (ms). Keep it below
+# DEFAULT_TIMEOUT so the subprocess still bounds the whole invocation.
+CLI_HTTP_TIMEOUT_MS = int(os.environ.get("KDOCS_CLI_HTTP_TIMEOUT_MS", "170000"))
+
+# Idempotent read actions can be safely retried on gateway timeouts;
+# write actions must NOT be retried (risk of duplicate records) — the
+# next scheduled upsert run self-heals partial writes instead.
+RETRYABLE_READ_ACTIONS = {
+    "get-schema",
+    "get-record",
+    "list-records",
+    "records-list",
+    "list-my-files",
+    "list-files",
+}
+_TIMEOUT_HINTS = ("context deadline exceeded", "Client.Timeout", "Timeout exceeded")
 
 
 class KdocsCliError(RuntimeError):
@@ -99,7 +118,7 @@ class KdocsCliClient:
     # (kdocs-cli accepts "-" to read the JSON params from stdin).
     STDIN_THRESHOLD = 32 * 1024
 
-    def _run(self, args: list[str]) -> dict:
+    def _run(self, args: list[str], _attempt: int = 1) -> dict:
         stdin_data = None
         positional = args
         if args and len(args[-1]) > self.STDIN_THRESHOLD and args[-1].startswith("{"):
@@ -108,6 +127,7 @@ class KdocsCliClient:
         cmd = [self.cli_path, *positional]
         if self.token:
             cmd += ["--token", self.token]
+        cmd += ["--timeout", str(CLI_HTTP_TIMEOUT_MS)]
         cmd += ["--output", "json"]
         try:
             proc = subprocess.run(
@@ -123,10 +143,19 @@ class KdocsCliClient:
                 "裸机部署请运行 scripts/install-kdocs-cli.sh"
             ) from e
         except subprocess.TimeoutExpired as e:
+            if _attempt == 1 and self._is_retryable_read(args):
+                return self._retry(args)
             raise KdocsCliError(f"kdocs-cli 执行超时（>{self.timeout}s）") from e
         if proc.returncode != 0:
+            err_text = (proc.stderr or proc.stdout) or ""
+            if (
+                _attempt == 1
+                and self._is_retryable_read(args)
+                and any(h in err_text for h in _TIMEOUT_HINTS)
+            ):
+                return self._retry(args)
             raise KdocsCliError(
-                f"kdocs-cli 退出码 {proc.returncode}: {(proc.stderr or proc.stdout)[-400:]}"
+                f"kdocs-cli 退出码 {proc.returncode}: {err_text[-400:]}"
             )
         try:
             payload = json.loads(proc.stdout)
@@ -146,8 +175,19 @@ class KdocsCliClient:
                 data = data["detail"]
         return data if isinstance(data, dict) else {}
 
+    @staticmethod
+    def _is_retryable_read(args: list[str]) -> bool:
+        # args = [service, action, params?] — retry reads only, never writes
+        return len(args) >= 2 and args[1] in RETRYABLE_READ_ACTIONS
+
+    def _retry(self, args: list[str]) -> dict:
+        time.sleep(2)
+        return self._run(args, _attempt=2)
+
     def _dbsheet(self, action: str, params: dict[str, Any]) -> dict:
-        return self._run(["dbsheet", action, json.dumps(params, ensure_ascii=False)])    # ------------------------------------------------------------ capability
+        return self._run(["dbsheet", action, json.dumps(params, ensure_ascii=False)])
+
+    # ------------------------------------------------------------ capability
     def test_connection(self) -> dict:
         """Lightweight connectivity/auth check via drive root listing."""
         data = self._run(["drive", "list-my-files", json.dumps({"page_size": 1})])
@@ -229,7 +269,7 @@ class KdocsCliClient:
             "file_id": file_token,
             "name": name,
             "views": [{"name": "表格视图", "type": "grid"}],
-            "fields": [{"name": n, "type": "Text"} for n in field_names],
+            "fields": [{"name": n, "type": "MultiLineText"} for n in field_names],
         }
         return self._dbsheet("create-sheet", params)
 
@@ -239,7 +279,7 @@ class KdocsCliClient:
             {
                 "file_id": file_token,
                 "sheet_id": int(sheet_id),
-                "fields": [{"name": name, "type": "Text"}],
+                "fields": [{"name": name, "type": "MultiLineText"}],
             },
         )
 

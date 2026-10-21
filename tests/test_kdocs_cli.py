@@ -71,6 +71,71 @@ class TestRun:
         cmd = run.call_args.args[0]
         assert "--token" not in cmd
 
+    def test_cli_http_timeout_flag_passed(self):
+        """The CLI's internal 30s HTTP timeout must be raised via --timeout."""
+        from app.kdocs_cli import CLI_HTTP_TIMEOUT_MS
+
+        c = self._client()
+        with patch("app.kdocs_cli.subprocess.run") as run:
+            run.return_value = cli_response({"code": 0, "data": {"detail": {}}})
+            c._run(["dbsheet", "list-records", "{}"])
+        cmd = run.call_args.args[0]
+        assert "--timeout" in cmd
+        assert cmd[cmd.index("--timeout") + 1] == str(CLI_HTTP_TIMEOUT_MS)
+        assert cmd[-1] == "json"  # --output json stays last
+
+    def test_read_action_retried_once_on_gateway_timeout(self):
+        c = self._client()
+        calls = {"n": 0}
+
+        def fake_run(args, **kw):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return subprocess.CompletedProcess(
+                    args=[], returncode=1, stdout="",
+                    stderr='Error: request failed: Post "https://mcp-center.wps.cn/...": context deadline exceeded (Client.Timeout exceeded while awaiting headers)',
+                )
+            return cli_response({"code": 0, "data": {"detail": {"records": []}}})
+
+        with patch("app.kdocs_cli.subprocess.run", side_effect=fake_run):
+            with patch("app.kdocs_cli.time.sleep"):
+                out = c._run(["dbsheet", "list-records", "{}"])
+        assert calls["n"] == 2
+        assert out == {"records": []}
+
+    def test_write_action_never_retried_on_timeout(self):
+        """create-records must not retry: a timed-out write may have landed
+        server-side, retrying would duplicate records."""
+        c = self._client()
+        calls = {"n": 0}
+
+        def fake_run(args, **kw):
+            calls["n"] += 1
+            return subprocess.CompletedProcess(
+                args=[], returncode=1, stdout="",
+                stderr="Error: request failed: context deadline exceeded (Client.Timeout)",
+            )
+
+        with patch("app.kdocs_cli.subprocess.run", side_effect=fake_run):
+            with pytest.raises(KdocsCliError, match="deadline"):
+                c._run(["dbsheet", "create-records", "{}"])
+        assert calls["n"] == 1
+
+    def test_non_timeout_error_not_retried(self):
+        c = self._client()
+        calls = {"n": 0}
+
+        def fake_run(args, **kw):
+            calls["n"] += 1
+            return subprocess.CompletedProcess(
+                args=[], returncode=1, stdout="", stderr="Error: bad request"
+            )
+
+        with patch("app.kdocs_cli.subprocess.run", side_effect=fake_run):
+            with pytest.raises(KdocsCliError, match="bad request"):
+                c._run(["dbsheet", "list-records", "{}"])
+        assert calls["n"] == 1
+
 
     def test_large_payload_goes_via_stdin(self):
         """Payloads over the argv size limit must be passed via stdin ('-')."""
