@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>采集用户管理 - sheets2kdocs</title>
+<style>
+  :root { --brand:#1a73e8; --border:#dadce0; --bg:#f8f9fa; }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; margin:0; background:var(--bg); color:#202124; }
+  .wrap { max-width:880px; margin:0 auto; padding:24px 16px 80px; }
+  h1 { font-size:20px; } .sub { color:#5f6368; font-size:13px; margin-bottom:18px; }
+  .card { background:#fff; border:1px solid var(--border); border-radius:10px; padding:18px 20px; margin-bottom:16px; }
+  .card h2 { font-size:15px; margin:0 0 12px; }
+  label { font-size:13px; color:#5f6368; display:block; margin:8px 0 4px; }
+  input, select { width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px; }
+  button { background:var(--brand); color:#fff; border:0; border-radius:6px; padding:8px 16px; font-size:13px; cursor:pointer; }
+  button.ghost { background:#fff; color:var(--brand); border:1px solid var(--brand); }
+  button.danger { background:#fff; color:#d93025; border:1px solid #d93025; }
+  button.small { padding:4px 10px; font-size:12px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { border-bottom:1px solid #f1f3f4; padding:8px 6px; text-align:left; }
+  th { color:#5f6368; background:var(--bg); }
+  .status { font-size:13px; margin-left:10px; } .ok { color:#188038; } .err { color:#d93025; }
+  .tag { font-size:12px; padding:2px 8px; border-radius:10px; }
+  .tag.admin { background:#e8f0fe; color:#1a73e8; }
+  .tag.off { background:#fce8e6; color:#d93025; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+  .row > div { flex:1; min-width:130px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>采集用户管理</h1>
+  <div class="sub">TMT 详情页自动采集器 · 账号由管理员创建后分发给采集人使用 · 管理页地址：<code>/static/ext-admin.html</code></div>
+
+  <div class="card" id="loginCard">
+    <h2>🔐 管理员登录</h2>
+    <div class="row">
+      <div><label>用户名</label><input id="liUser" autocomplete="username"></div>
+      <div><label>密码</label><input id="liPass" type="password" autocomplete="current-password"></div>
+      <div style="flex:0"><button id="btnLogin">登录</button></div>
+    </div>
+    <div class="status" id="loginStatus"></div>
+  </div>
+
+  <div id="admin" style="display:none">
+    <div class="card">
+      <h2>👥 用户列表 <button class="ghost small" id="btnReload" style="float:right">刷新</button></h2>
+      <table>
+        <thead><tr><th>ID</th><th>用户名</th><th>显示名（采集人名称）</th><th>角色</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody id="userRows"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>➕ 创建采集人账号</h2>
+      <div class="row">
+        <div><label>用户名 *</label><input id="nuUser"></div>
+        <div><label>密码（≥6位）*</label><input id="nuPass"></div>
+        <div><label>显示名（采集人名称）</label><input id="nuName"></div>
+        <div style="flex:0"><label>角色</label><select id="nuRole"><option value="user">采集人</option><option value="admin">管理员</option></select></div>
+        <div style="flex:0"><button id="btnCreate">创建</button></div>
+      </div>
+      <div class="status" id="createStatus"></div>
+    </div>
+
+    <div class="card">
+      <h2>🔑 修改自己的密码</h2>
+      <div class="row">
+        <div><label>旧密码</label><input id="pwOld" type="password"></div>
+        <div><label>新密码（≥6位）</label><input id="pwNew" type="password"></div>
+        <div style="flex:0"><button id="btnPw">修改</button></div>
+      </div>
+      <div class="status" id="pwStatus"></div>
+    </div>
+    <div class="row"><button class="ghost" id="btnLogout">退出登录</button></div>
+  </div>
+</div>
+<script>
+const $ = (s) => document.querySelector(s);
+let token = sessionStorage.getItem("tmt_admin_token") || "";
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, {
+    method: opts.method || "GET",
+    headers: { "Content-Type": "application/json", "X-Auth-Token": token },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || data.detail || ("HTTP " + r.status));
+  return data;
+}
+
+function flash(el, msg, good) {
+  el.textContent = msg;
+  el.className = "status " + (good ? "ok" : "err");
+  setTimeout(() => { el.textContent = ""; }, 4000);
+}
+
+async function loadUsers() {
+  const { users } = await api("/api/extension/admin/users");
+  const tb = $("#userRows");
+  tb.innerHTML = "";
+  for (const u of users) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${u.id}</td>
+      <td><b>${u.username}</b></td>
+      <td><input data-id="${u.id}" class="u-name" value="${(u.displayName || "").replace(/"/g, "&quot;")}" style="padding:4px 8px"></td>
+      <td>${u.role === "admin" ? '<span class="tag admin">管理员</span>' : "采集人"}</td>
+      <td>${u.enabled ? "正常" : '<span class="tag off">已停用</span>'}</td>
+      <td>
+        <button class="ghost small" onclick="resetPw(${u.id}, '${u.username}')">重置密码</button>
+        <button class="ghost small" onclick="saveUser(${u.id})">保存改名</button>
+        <button class="ghost small" onclick="toggleUser(${u.id}, ${u.enabled ? "false" : "true"})">${u.enabled ? "停用" : "启用"}</button>
+        ${u.role !== "admin" ? `<button class="danger small" onclick="delUser(${u.id}, '${u.username}')">删除</button>` : ""}
+      </td>`;
+    tb.appendChild(tr);
+  }
+}
+
+window.saveUser = async function (id) {
+  const name = document.querySelector(`.u-name[data-id="${id}"]`).value;
+  try { await api(`/api/extension/admin/users/${id}`, { method: "PUT", body: { display_name: name } }); flash($("#loginStatus"), "已保存", true); }
+  catch (e) { flash($("#loginStatus"), e.message, false); }
+};
+window.resetPw = async function (id, username) {
+  const pw = prompt(`为 ${username} 设置新密码（≥6位）：`);
+  if (!pw) return;
+  try { await api(`/api/extension/admin/users/${id}`, { method: "PUT", body: { password: pw } }); alert("密码已重置"); }
+  catch (e) { alert(e.message); }
+};
+window.toggleUser = async function (id, enabled) {
+  try { await api(`/api/extension/admin/users/${id}`, { method: "PUT", body: { enabled } }); loadUsers(); }
+  catch (e) { alert(e.message); }
+};
+window.delUser = async function (id, username) {
+  if (!confirm(`确定删除用户 ${username}？`)) return;
+  try { await api(`/api/extension/admin/users/${id}`, { method: "DELETE" }); loadUsers(); }
+  catch (e) { alert(e.message); }
+};
+
+$("#btnLogin").onclick = async () => {
+  try {
+    const r = await fetch("/api/extension/auth/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: $("#liUser").value.trim(), password: $("#liPass").value }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || d.error || "登录失败");
+    if (d.user.role !== "admin") throw new Error("该账号不是管理员");
+    token = d.token;
+    sessionStorage.setItem("tmt_admin_token", token);
+    enterAdmin();
+  } catch (e) { flash($("#loginStatus"), e.message, false); }
+};
+
+$("#btnLogout").onclick = () => {
+  api("/api/extension/auth/logout", { method: "POST" }).catch(() => {});
+  token = ""; sessionStorage.removeItem("tmt_admin_token");
+  $("#admin").style.display = "none"; $("#loginCard").style.display = "";
+};
+
+$("#btnCreate").onclick = async () => {
+  try {
+    await api("/api/extension/admin/users", { method: "POST", body: {
+      username: $("#nuUser").value.trim(), password: $("#nuPass").value,
+      display_name: $("#nuName").value, role: $("#nuRole").value,
+    }});
+    flash($("#createStatus"), "创建成功 ✓", true);
+    $("#nuUser").value = $("#nuPass").value = $("#nuName").value = "";
+    loadUsers();
+  } catch (e) { flash($("#createStatus"), e.message, false); }
+};
+
+$("#btnPw").onclick = async () => {
+  try {
+    await api("/api/extension/auth/password", { method: "POST", body: { old_password: $("#pwOld").value, new_password: $("#pwNew").value } });
+    flash($("#pwStatus"), "密码已修改 ✓", true);
+    $("#pwOld").value = $("#pwNew").value = "";
+  } catch (e) { flash($("#pwStatus"), e.message, false); }
+};
+
+$("#btnReload").onclick = loadUsers;
+
+async function enterAdmin() {
+  $("#loginCard").style.display = "none";
+  $("#admin").style.display = "";
+  try { await loadUsers(); } catch (e) { flash($("#loginStatus"), e.message, false); }
+}
+
+if (token) enterAdmin();
+</script>
+</body>
+</html>

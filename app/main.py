@@ -28,6 +28,12 @@ templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 async def lifespan(app: FastAPI):
     db.init_db(settings.db_path)
     scheduler.start(settings.timezone)
+    try:
+        from . import ext_service
+
+        ext_service.ensure_admin()
+    except Exception:
+        logger.exception("ext admin bootstrap failed")
     logger.info("sheets2kdocs started (data dir: %s)", settings.data_dir.resolve())
     yield
     scheduler.shutdown()
@@ -44,6 +50,9 @@ app.include_router(web_router)
 app.include_router(api_router, prefix="/api")
 
 PUBLIC_PATHS = {"/login", "/healthz"}
+EXTENSION_PUSH_PATH = "/api/extension/push"
+EXTENSION_PUBLIC_PATHS = {"/api/extension/auth/login", "/api/airscript"}
+EXTENSION_AUTH_PREFIXES = ("/api/extension/auth/", "/api/extension/presets", "/api/extension/admin/")
 
 
 @app.middleware("http")
@@ -51,6 +60,32 @@ async def auth_middleware(request: Request, call_next):
     path = request.url.path
     if path == "/healthz":
         return JSONResponse({"ok": True})
+    if path == EXTENSION_PUSH_PATH:
+        # browser-extension channel: X-Ext-Token instead of session cookie
+        import hmac as _hmac
+
+        from .kdocs_cli import get_setting
+
+        try:
+            expected = get_setting("ext_push_token") or ""
+        except Exception:
+            expected = ""
+        supplied = request.headers.get("x-ext-token", "")
+        if expected and supplied and _hmac.compare_digest(supplied, expected):
+            request.state.user = "extension"
+            return await call_next(request)
+        return JSONResponse({"error": "invalid extension token"}, status_code=401)
+    if path in EXTENSION_PUBLIC_PATHS:
+        return await call_next(request)
+    if path.startswith(EXTENSION_AUTH_PREFIXES):
+        # extension login channel: X-Auth-Token
+        from . import ext_service
+
+        user = ext_service.auth(request.headers.get("x-auth-token", ""))
+        if not user:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        request.state.ext_user = user
+        return await call_next(request)
     if path not in PUBLIC_PATHS and not path.startswith("/static"):
         user = read_session(request.cookies.get(SESSION_COOKIE))
         if not user:
